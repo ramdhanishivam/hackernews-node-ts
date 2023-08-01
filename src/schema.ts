@@ -5,19 +5,7 @@ import { GraphQLContext } from "./context";
 import { compare, hash } from "bcryptjs";
 import { sign } from "jsonwebtoken";
 import { APP_SECRET } from "./auth";
-
-type Link = {
-  id: string;
-  url: string;
-  description: string;
-}
-
-const links: Link[] = [{
-  id: "link-0",
-  url: "www.howtographql.com",
-  description: "Guide Tutorials"
-}]
-
+import { Link, User, Prisma } from "@prisma/client";
 
 // Prisma Client exposes a CRUD API for the models in your datamodel 
 // for you to read and write in your database
@@ -50,7 +38,17 @@ const resolvers = {
   Link: {
     id: (parent: Link) => parent.id,
     url: (parent: Link) => parent.url,
-    description: (parent: Link) => parent.description
+    description: (parent: Link) => parent.description,
+    postedBy: async (parent: Link, args: [], context: GraphQLContext) => {
+      if(!parent.postedById){
+        return null;
+      }
+      return context.prisma.link.findUnique({
+        where: {
+          id: parent.id
+        }
+      }).postedBy();
+    }
   },
   Mutation: {
     post: async (
@@ -120,6 +118,11 @@ const resolvers = {
       }
     }
   },
+  User: {
+    links: (parent: User, args:{},context: GraphQLContext) => {
+      context.prisma.user.findUnique({where: {id: parent.id}}).links()
+    }
+  }
 };
 
 export const schema: GraphQLSchema = makeExecutableSchema({
