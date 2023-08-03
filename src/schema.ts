@@ -6,6 +6,7 @@ import { compare, hash } from "bcryptjs";
 import { sign } from "jsonwebtoken";
 import { APP_SECRET } from "./auth";
 import { Link, User, Prisma } from "@prisma/client";
+import { PubSubChannels } from "./pubsub";
 
 // Prisma Client exposes a CRUD API for the models in your datamodel 
 // for you to read and write in your database
@@ -61,14 +62,16 @@ const resolvers = {
         throw new Error("Unauthenticated!");
       }
 
-      const link= context.prisma.link.create({
+      const newLink = await context.prisma.link.create({
         data: {
           url: args.url,
           description: args.description,
           postedBy: {connect: {id: context.currentUser.id}}
         },
       })
-      return link;
+
+      context.pubSub.publish("newLink", {createdLink: newLink})
+      return newLink;
     },
     signup: async (
       parent: unknown,
@@ -122,7 +125,17 @@ const resolvers = {
     links: (parent: User, args:{},context: GraphQLContext) => {
       context.prisma.user.findUnique({where: {id: parent.id}}).links()
     }
-  }
+  },
+  Subscription: {
+    newLink: {
+      subscribe: (parent: unknown, args: [], context: GraphQLContext) => {
+        return context.pubSub.asyncIterator("newLink")
+      },
+      resolve: (payload: PubSubChannels["newLink"][0]) => {
+        return payload.createdLink;
+      }
+    }
+  },
 };
 
 export const schema: GraphQLSchema = makeExecutableSchema({
