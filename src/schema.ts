@@ -5,7 +5,7 @@ import { GraphQLContext } from "./context";
 import { compare, hash } from "bcryptjs";
 import { sign } from "jsonwebtoken";
 import { APP_SECRET } from "./auth";
-import { Link, User, Prisma } from "@prisma/client";
+import { Link, User,  } from "@prisma/client";
 import { PubSubChannels } from "./pubsub";
 
 // Prisma Client exposes a CRUD API for the models in your datamodel 
@@ -49,6 +49,13 @@ const resolvers = {
           id: parent.id
         }
       }).postedBy();
+    },
+    votes: (parent: Link, args: {}, context: GraphQLContext) => {
+      context.prisma.link.findUnique({
+        where: {
+          id: parent.id
+        }
+      }).votes()
     }
   },
   Mutation: {
@@ -119,6 +126,39 @@ const resolvers = {
         token,
         user,
       }
+    },
+    vote: async (parent: unknown, args: {
+      link: string;linkId: string
+}, context: GraphQLContext) => {
+      if (!context.currentUser) {
+        throw new Error("You must login inorder to upvote");
+      }
+
+      const userId = context.currentUser.id;
+
+      const vote = await context.prisma.vote.findUnique({
+        where: {
+          linkId_userId: {
+            linkId:  Number(args.link),
+            userId: userId
+          }
+        }
+      })
+
+      if (vote !== null) {
+        throw new Error("Already upvoted")
+      }
+
+      const newVote = await context.prisma.vote.create({
+        data:{
+          user: { connect: {id: userId} },
+          link: { connect: { id: Number(args.link)} }
+        }
+      })
+
+      context.pubSub.publish("newVote", {createdVote: newVote});
+
+      return newVote;
     }
   },
   User: {
@@ -134,8 +174,22 @@ const resolvers = {
       resolve: (payload: PubSubChannels["newLink"][0]) => {
         return payload.createdLink;
       }
+    },
+    newVote: {
+      subscribe: (parent: unknown, args: [], context: GraphQLContext) => {
+        return context.pubSub.asyncIterator("newVote")
+      },
+      resolve: (payload: PubSubChannels["newVote"][0]) => {
+        return payload.createdVote
+      }
     }
   },
+  Vote: {
+    link: (parent: User, args: [], context: GraphQLContext) => 
+      context.prisma.vote.findUnique({where: {id: parent.id}}).link(),
+    user: (parent: User, args: [], context: GraphQLContext) => 
+      context.prisma.vote.findUnique({where: {id: parent.id}}).user()
+  }
 };
 
 export const schema: GraphQLSchema = makeExecutableSchema({
